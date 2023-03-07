@@ -20,7 +20,7 @@ CREATE TABLE members (
   zip INT NOT NULL,
   phone VARCHAR(12),
   email VARCHAR(40),
-  userid INT NOT NULL,
+  userid INT NOT NULL auto_increment,
   password VARCHAR(20),
   creditcardtype VARCHAR(10),
   creditcardnumber VARCHAR(16),
