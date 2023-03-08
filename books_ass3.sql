@@ -19,7 +19,7 @@ CREATE TABLE members (
   state VARCHAR(20) NOT NULL,
   zip INT NOT NULL,
   phone VARCHAR(12),
-  email VARCHAR(40),
+  email VARCHAR(40) UNIQUE,
   userid INT NOT NULL auto_increment,
   password VARCHAR(20),
   creditcardtype VARCHAR(10),
