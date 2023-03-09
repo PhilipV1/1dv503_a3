@@ -111,7 +111,7 @@ def newMemberMenu(sqlConnector):
     except Error as e:
         print(f"Failed to created new member: {e.msg}\n")
 
-
+#REMOVE LATER
 def printMembers(sqlConnector):
     selectMembers = "SELECT * FROM members"
     with sqlConnector.cursor() as cursor:
