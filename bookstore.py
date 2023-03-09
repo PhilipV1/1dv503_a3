@@ -122,7 +122,7 @@ def printMembers(sqlConnector):
 
 
 def userInput():
-    validInputs = [1, 2, 3, 4]
+    validInputs = [1, 2, 3]
 
     option = False
     while not option:
@@ -130,7 +130,7 @@ def userInput():
             value = int(input("Type in your option: ")).lower()
             ordValue = ord(value)
             print(f"ASCII value = {ordValue}")
-            if validInputs.count(value) < 1:
+            if validInputs.count(validInputs) < 1:
                 print("Please choose from the appropriate options")
             else:
                 option = True
