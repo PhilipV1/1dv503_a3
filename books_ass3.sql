@@ -37,7 +37,7 @@ foreign key (isbn) references books (isbn)
   
   CREATE TABLE orders (
   userid INT NOT NULL,
-  ono INT NOT NULL,
+  ono INT NOT NULL auto_increment,
   recieved DATE,
   shipped DATE,
   shipAdress VARCHAR(50),

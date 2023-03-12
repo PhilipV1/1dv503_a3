@@ -21,6 +21,7 @@ class UserMenu(Enum):
 
 class BrowseOptions(Enum):
     """Easier readability for menu options"""
+    ERROR = -1
     RETURN = 0
     ADDTOCART = 1
     CONTINUE = 2
@@ -28,31 +29,29 @@ class BrowseOptions(Enum):
 
 def main():
     run = True
-    userin = Menu.MAIN
+    userin = Menu.MAIN.value
     sqlConnector = connectDB()
-
-    while run:
-        if userin == Menu.MAIN.value:
-            menuType(Menu.MAIN.value)
-            userin = userInput(Menu.MAIN.value)
-        if userin == Menu.USER.value:
-            menuType(Menu.USER.value)
-            userin = userInput(Menu.USER.value)
-            if userin == UserMenu.BROWSE.value:
-                browseSubject(sqlConnector)
-                input("\nPress enter to continue: \n")
-            if userin == UserMenu.LOGOUT.value:
+    if sqlConnector != 0:
+        while run:
+            if userin == Menu.MAIN.value:
+                menuType(Menu.MAIN.value)
+                userin = userInput(Menu.MAIN.value)
+            if userin == Menu.USER.value:
+                menuType(Menu.USER.value)
+                userin = userInput(Menu.USER.value)
+                if userin == UserMenu.BROWSE.value:
+                    browseSubject(sqlConnector)
+                    userin = Menu.USER.value
+                if userin == UserMenu.LOGOUT.value:
+                    userin = Menu.MAIN.value
+            if userin == Menu.NEWMEMBER.value:
+                newMemberMenu(sqlConnector)
+                input("\nPress enter to return to the main menu")
                 userin = Menu.MAIN.value
-        if userin == Menu.NEWMEMBER.value:
-            newMemberMenu(sqlConnector)
-            input("\nPress enter to return to the main menu")
-            userin = Menu.MAIN.value
-        if userin == Menu.QUIT.value:
-            run = False
-        else:
-            userin = Menu.MAIN.value
+            if userin == Menu.QUIT.value:
+                run = False
 
-    sqlConnector.close()
+        sqlConnector.close()
 
 
 def connectDB():
@@ -68,6 +67,7 @@ def connectDB():
         )
     except Error as e:
         print("Failed to connect to database: " + e.msg)
+        return 0
     return connection
 
 
@@ -82,19 +82,57 @@ def browseSubject(sqlConnector):
             print(f"{count + 1}. {row[0]}")
         # Get the selected genre
         selection = selectSubject(len(result))
+        subject = result[selection - 1][0]
+        amountQuery = f"""SELECT count(*) FROM books
+            WHERE subject = \"{subject}\""""
+        cursor.execute(amountQuery)
+        nrOfBooks = cursor.fetchall()
 
         subjectQuery = f"""SELECT author, title, isbn, price, subject
-        FROM books WHERE subject = \"{result[selection - 1][0]}\"
-        ORDER BY author LIMIT 2"""
-        print(f"\"{result[selection - 1][0]}\"")
+        FROM books WHERE subject = \"{subject}\"
+        ORDER BY author LIMIT 0, 2"""
+        print(f"\"{subject}\"")
         cursor.execute(subjectQuery)
         books = cursor.fetchall()
+        print(f"{nrOfBooks[0][0]} available books on this subject\n")
         for b in books:
             print(f"Author: {b[0]}")
             print(f"Title: {b[1]}")
             print(f"ISBN: {b[2]}")
             print(f"Price: {b[3]}")
             print(f"Subject: {b[4]}\n")
+
+        # User adds to cart, continue browsing or returning to main menu
+        returnMain = False
+        # Offset keeps track of which books to show
+        offset = 2
+        while not returnMain:
+            prompt = """Enter ISBN to add to cart or enter \"n\" to browse
+                or ENTER to return to menu:\n"""
+            userin = input(prompt)
+            option = browseSelection(userin)
+            if option == BrowseOptions.ERROR.value:
+                print("\nPlease input a valid option!\n")
+            if option == BrowseOptions.RETURN.value:
+                returnMain = True
+            if option == BrowseOptions.CONTINUE.value:
+                # Query for the 2 current books in the list
+                subjectQuery = f"""SELECT author, title, isbn, price, subject
+                    FROM books WHERE subject = \"{subject}\"
+                    ORDER BY author LIMIT {offset}, 2"""
+                offset = (offset + 2) % nrOfBooks[0][0]
+                cursor.execute(subjectQuery)
+                books = cursor.fetchall()
+                for b in books:
+                    print(f"Author: {b[0]}")
+                    print(f"Title: {b[1]}")
+                    print(f"ISBN: {b[2]}")
+                    print(f"Price: {b[3]}")
+                    print(f"Subject: {b[4]}\n")
+            if option == BrowseOptions.ADDTOCART.value:
+                bookExistQuery = f"""SELECT isbn FROM books
+                    WHERE isbn = {userin}"""
+                cursor.execute(bookExistQuery)
 
 
 def menuType(menu=Menu.MAIN.value):
@@ -204,27 +242,17 @@ def selectSubject(count):
     return selection
 
 
-def browseSelection():
-    prompt = """Enter ISBN to add to cart or enter \"n\" to browse
-         or ENTER to go back to menu:\n"""
+def browseSelection(userinput):
     retVal = -1
-    option = False
-    try:
-        while not option:
-            userin = input(prompt)
-            if userin == "":
-                retVal = BrowseOptions.RETURN.value
-                option = True
-            elif userin.isnumeric():
-                retVal = BrowseOptions.ADDTOCART.value
-                option = True
-            elif userin.lower() == "n":
-                retVal = BrowseOptions.CONTINUE.value
-                option = True
-            else:
-                print("Please input a valid choice\n")
-    except Error as e:
-        print("Error: " + e.msg)
+
+    if userinput == "":
+        retVal = BrowseOptions.RETURN.value
+    elif userinput.isnumeric():
+        retVal = BrowseOptions.ADDTOCART.value
+    elif userinput.lower() == "n":
+        retVal = BrowseOptions.CONTINUE.value
+    else:
+        retVal = BrowseOptions.ERROR.value
 
     return retVal
 
