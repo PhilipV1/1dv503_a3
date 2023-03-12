@@ -130,9 +130,14 @@ def browseSubject(sqlConnector):
                     print(f"Price: {b[3]}")
                     print(f"Subject: {b[4]}\n")
             if option == BrowseOptions.ADDTOCART.value:
-                bookExistQuery = f"""SELECT isbn FROM books
+                bookExistQuery = f"""SELECT * FROM books
                     WHERE isbn = {userin}"""
                 cursor.execute(bookExistQuery)
+                book = cursor.fetchall()
+                if len(book) == 0:
+                    print("Invalid ISBN, book not found")
+                else:
+                    pass
 
 
 def menuType(menu=Menu.MAIN.value):
