@@ -11,18 +11,38 @@ class Menu(Enum):
     QUIT = 3
 
 
+class UserMenu(Enum):
+    """Easier readability for menu options"""
+    BROWSE = 1
+    SEARCH = 2
+    CHECKOUT = 3
+    LOGOUT = 4
+
+
+class BrowseOptions(Enum):
+    """Easier readability for menu options"""
+    RETURN = 0
+    ADDTOCART = 1
+    CONTINUE = 2
+
+
 def main():
     run = True
     userin = Menu.MAIN
-    sqlConnector = ConnectDB()
+    sqlConnector = connectDB()
 
     while run:
         if userin == Menu.MAIN.value:
             menuType(Menu.MAIN.value)
-            userin = userInput()
+            userin = userInput(Menu.MAIN.value)
         if userin == Menu.USER.value:
             menuType(Menu.USER.value)
-            userin = Menu.MAIN.value
+            userin = userInput(Menu.USER.value)
+            if userin == UserMenu.BROWSE.value:
+                browseSubject(sqlConnector)
+                input("\nPress enter to continue: \n")
+            if userin == UserMenu.LOGOUT.value:
+                userin = Menu.MAIN.value
         if userin == Menu.NEWMEMBER.value:
             newMemberMenu(sqlConnector)
             input("\nPress enter to return to the main menu")
@@ -35,7 +55,7 @@ def main():
     sqlConnector.close()
 
 
-def ConnectDB():
+def connectDB():
 
     try:
         account = input("Enter username: ")
@@ -51,6 +71,32 @@ def ConnectDB():
     return connection
 
 
+def browseSubject(sqlConnector):
+    """Lets the user select a subject and display the books in that subject"""
+    searchQuery = """SELECT DISTINCT subject FROM books ORDER BY subject"""
+    with sqlConnector.cursor() as cursor:
+        cursor.execute(searchQuery)
+        result = cursor.fetchall()
+        print()
+        for count, row in enumerate(result):
+            print(f"{count + 1}. {row[0]}")
+        # Get the selected genre
+        selection = selectSubject(len(result))
+
+        subjectQuery = f"""SELECT author, title, isbn, price, subject
+        FROM books WHERE subject = \"{result[selection - 1][0]}\"
+        ORDER BY author LIMIT 2"""
+        print(f"\"{result[selection - 1][0]}\"")
+        cursor.execute(subjectQuery)
+        books = cursor.fetchall()
+        for b in books:
+            print(f"Author: {b[0]}")
+            print(f"Title: {b[1]}")
+            print(f"ISBN: {b[2]}")
+            print(f"Price: {b[3]}")
+            print(f"Subject: {b[4]}\n")
+
+
 def menuType(menu=Menu.MAIN.value):
     line1 = "*******************************************\n"
     line2 = "***                                     ***\n"
@@ -61,6 +107,7 @@ def menuType(menu=Menu.MAIN.value):
     if menu == Menu.USER.value:
         line4 = "***            Member Menu              ***\n"
         print(line1 + line2 + line3 + line4 + line2 + line1)
+        memberMenuOption()
 
 
 def memberMenuOption():
@@ -73,8 +120,7 @@ def memberMenuOption():
 def mainMenuOption():
     print("\t1. Member login")
     print("\t2. New Member Registration")
-    print("\t3. Show all members")
-    print("\tQ. Quit\n")
+    print("\t3. Quit\n")
 
 
 def newMemberMenu(sqlConnector):
@@ -118,26 +164,69 @@ def printMembers(sqlConnector):
     with sqlConnector.cursor() as cursor:
         cursor.execute(selectMembers)
         result = cursor.fetchall()
-        for row in result:
-            print(row)
+        for index, row in enumerate(result):
+            print(f"{index}. {row[0]}")
 
 
-def userInput():
-    validInputs = [1, 2, 3]
+# Section for input related functions
+def userInput(currentMenu):
+    if currentMenu == Menu.MAIN.value:
+        validInputs = [1, 2, 3]
+    elif currentMenu == Menu.USER.value:
+        validInputs = [1, 2, 3, 4]
 
     option = False
     while not option:
         try:
-            value = int(input("Type in your option: ")).lower()
-            ordValue = ord(value)
-            print(f"ASCII value = {ordValue}")
-            if validInputs.count(validInputs) < 1:
+            value = int(input("\nType in your option: "))
+            if validInputs.count(value) < 1:
                 print("Please choose from the appropriate options")
             else:
                 option = True
         except ValueError as e:
             print(f"Invalid input: {e}")
     return value
+
+
+def selectSubject(count):
+    validInputs = [i for i in range(1, count + 1)]
+    option = False
+    while not option:
+        try:
+            selection = int(input("Enter your choice: "))
+            if validInputs.count(selection) > 0:
+                option = True
+            else:
+                print("Please input a valid choice.\n")
+        except ValueError as e:
+            print("Invalid input! ERROR: " + e)
+
+    return selection
+
+
+def browseSelection():
+    prompt = """Enter ISBN to add to cart or enter \"n\" to browse
+         or ENTER to go back to menu:\n"""
+    retVal = -1
+    option = False
+    try:
+        while not option:
+            userin = input(prompt)
+            if userin == "":
+                retVal = BrowseOptions.RETURN.value
+                option = True
+            elif userin.isnumeric():
+                retVal = BrowseOptions.ADDTOCART.value
+                option = True
+            elif userin.lower() == "n":
+                retVal = BrowseOptions.CONTINUE.value
+                option = True
+            else:
+                print("Please input a valid choice\n")
+    except Error as e:
+        print("Error: " + e.msg)
+
+    return retVal
 
 
 if __name__ == "__main__":
