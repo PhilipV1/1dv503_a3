@@ -102,7 +102,7 @@ def browseSubject(sqlConnector):
             print(f"Price: {b[3]}")
             print(f"Subject: {b[4]}\n")
 
-        # User adds to cart, continue browsing or returning to main menu
+        # Continue as long as user does not return to main menu
         returnMain = False
         # Offset keeps track of which books to show
         offset = 2
@@ -116,7 +116,7 @@ def browseSubject(sqlConnector):
             if option == BrowseOptions.RETURN.value:
                 returnMain = True
             if option == BrowseOptions.CONTINUE.value:
-                # Query for the 2 current books in the list
+                # Query for the 2 current books to show
                 subjectQuery = f"""SELECT author, title, isbn, price, subject
                     FROM books WHERE subject = \"{subject}\"
                     ORDER BY author LIMIT {offset}, 2"""
