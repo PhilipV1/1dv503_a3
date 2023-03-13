@@ -21,6 +21,7 @@ class UserMenu(Enum):
 
 class BrowseOptions(Enum):
     """Easier readability for menu options"""
+    ISBNERROR = -2
     ERROR = -1
     RETURN = 0
     ADDTOCART = 1
@@ -29,21 +30,28 @@ class BrowseOptions(Enum):
 
 def main():
     run = True
+    loggedin = False
     userin = Menu.MAIN.value
+    currentUser = createEmptyDict()
     sqlConnector = connectDB()
+
     if sqlConnector != 0:
         while run:
             if userin == Menu.MAIN.value:
                 menuType(Menu.MAIN.value)
                 userin = userInput(Menu.MAIN.value)
             if userin == Menu.USER.value:
-                menuType(Menu.USER.value)
-                userin = userInput(Menu.USER.value)
-                if userin == UserMenu.BROWSE.value:
-                    browseSubject(sqlConnector)
+                if not loggedin:
+                    loggedin = login(sqlConnector, currentUser)
                     userin = Menu.USER.value
-                if userin == UserMenu.LOGOUT.value:
-                    userin = Menu.MAIN.value
+                else:
+                    menuType(Menu.USER.value)
+                    userin = userInput(Menu.USER.value)
+                    if userin == UserMenu.BROWSE.value:
+                        browseSubject(sqlConnector, currentUser)
+                        userin = Menu.USER.value
+                    if userin == UserMenu.LOGOUT.value:
+                        userin = Menu.MAIN.value
             if userin == Menu.NEWMEMBER.value:
                 newMemberMenu(sqlConnector)
                 input("\nPress enter to return to the main menu")
@@ -55,7 +63,7 @@ def main():
 
 
 def connectDB():
-
+    """Connects to the database, returns 0 on failure"""
     try:
         account = input("Enter username: ")
         pword = getpass("Enter password: ")
@@ -71,7 +79,54 @@ def connectDB():
     return connection
 
 
-def browseSubject(sqlConnector):
+def createEmptyDict():
+    userDict = {
+        "fname": "none",
+        "lname": "none",
+        "address": "none",
+        "city": "none",
+        "state": "none",
+        "zip": 0,
+        "phone": 0,
+        "email": "none",
+        "userid": 0
+    }
+    return userDict
+
+
+def login(sqlConnector, currentUser):
+    with sqlConnector.cursor() as cursor:
+        validInput = False
+        while not validInput:
+            email = input("Enter your email: ")
+            password = getpass("Enter your password: ")
+            userQuery = f"""SELECT fname, lname, address, city, state, zip,
+            phone, email, userid, password
+            FROM members WHERE email = \"{email}\" AND password = \"{password}\""""
+            cursor.execute(userQuery)
+            user = cursor.fetchone()
+            if user is None or len(user) == 0:
+                print("""Wrong credentials,
+                        please enter correct username/password\n""")
+                check = input("""Press ENTER to continue or type \"exit\"
+                        to return to main menu: """)
+                if check.lower() == "exit":
+                    return False
+            else:
+                currentUser.update({"fname": user[0]})
+                currentUser.update({"lname": user[1]})
+                currentUser.update({"address": user[2]})
+                currentUser.update({"city": user[3]})
+                currentUser.update({"state": user[4]})
+                currentUser.update({"zip": user[5]})
+                currentUser.update({"phone": user[6]})
+                currentUser.update({"email": user[7]})
+                currentUser.update({"userid": user[8]})
+                validInput = True
+    return True
+
+
+def browseSubject(sqlConnector, currentUser):
     """Lets the user select a subject and display the books in that subject"""
     searchQuery = """SELECT DISTINCT subject FROM books ORDER BY subject"""
     with sqlConnector.cursor() as cursor:
@@ -87,7 +142,6 @@ def browseSubject(sqlConnector):
             WHERE subject = \"{subject}\""""
         cursor.execute(amountQuery)
         nrOfBooks = cursor.fetchall()
-
         subjectQuery = f"""SELECT author, title, isbn, price, subject
         FROM books WHERE subject = \"{subject}\"
         ORDER BY author LIMIT 0, 2"""
@@ -108,11 +162,13 @@ def browseSubject(sqlConnector):
         offset = 2
         while not returnMain:
             prompt = """Enter ISBN to add to cart or enter \"n\" to browse
-                or ENTER to return to menu:\n"""
+                or press ENTER to return to menu:\n"""
             userin = input(prompt)
             option = browseSelection(userin)
             if option == BrowseOptions.ERROR.value:
                 print("\nPlease input a valid option!\n")
+            if option == BrowseOptions.ISBNERROR.value:
+                print("ERROR: ISBN Length > 10\n")
             if option == BrowseOptions.RETURN.value:
                 returnMain = True
             if option == BrowseOptions.CONTINUE.value:
@@ -130,14 +186,72 @@ def browseSubject(sqlConnector):
                     print(f"Price: {b[3]}")
                     print(f"Subject: {b[4]}\n")
             if option == BrowseOptions.ADDTOCART.value:
-                bookExistQuery = f"""SELECT * FROM books
+                # Check if the book exist in the books table
+                bookExistQuery = f"""SELECT 1 FROM books
                     WHERE isbn = {userin}"""
                 cursor.execute(bookExistQuery)
-                book = cursor.fetchall()
-                if len(book) == 0:
-                    print("Invalid ISBN, book not found")
+                book = cursor.fetchone()
+                if book is None:
+                    print(f"\nBook not found! ISBN: {userin}\n")
                 else:
-                    pass
+                    addToCart(sqlConnector, userin, currentUser)
+                    checkCart(cursor, currentUser.get("userid"))
+
+
+def addToCart(sqlConnector, isbn, currentUser):
+    """Inserts a book into the cart table in the database"""
+    userid = currentUser.get("userid")
+    with sqlConnector.cursor() as cursor:
+        validInput = False
+        while not validInput:
+            try:
+                qty = int(input("Enter quantity: "))
+                validInput = True
+            except ValueError as ve:
+                print("Error!: " + ve)
+
+        if qty == 0:
+            # Check if the book already exists in the cart to remove it
+            checkCart = f"""SELECT 1 FROM cart WHERE isbn = {isbn}
+            AND userid = {userid}"""
+            cursor.execute(checkCart)
+            exist = cursor.fetchone()
+            if exist is not None:
+                removeFromCart = f"""DELETE from cart WHERE isbn = {isbn}
+                AND userid = {userid}"""
+                cursor.execute(removeFromCart)
+                cursor.commit()
+                print(f"ISBN: {isbn} removed from cart!\n")
+        elif qty > 0:
+            # Add qty number of books of the given isbn to the cart
+            checkIfExist = f"""SELECT 1 FROM cart WHERE userid = {userid}
+            AND isbn = {isbn}"""
+            cursor.execute(checkIfExist)
+            exists = cursor.fetchone()
+            if exists is None:
+                addBook = f"""INSERT INTO cart
+                (userid, isbn, qty)
+                VALUES ({userid}, {isbn}, {qty})"""
+                cursor.execute(addBook)
+                sqlConnector.commit()
+                print(f"Book added to cart! ISBN: {isbn}, Quantity: {qty}\n")
+            else:
+                updateCart = f"""UPDATE cart SET qty = {qty}
+                WHERE isbn = {isbn} AND userid = {userid}"""
+                cursor.execute(updateCart)
+                sqlConnector.commit()
+                print(f"Cart updated! ISBN: {isbn}, Quantity: {qty}")
+        else:
+            print("Please enter a valid quantity!\n")
+
+
+def checkCart(cursor, userid):
+    check = f"""SELECT * FROM cart WHERE userid = {userid}"""
+    cursor.execute(check)
+    cart = cursor.fetchall()
+    print("Books in cart: \n")
+    for row in cart:
+        print(row)
 
 
 def menuType(menu=Menu.MAIN.value):
@@ -146,24 +260,16 @@ def menuType(menu=Menu.MAIN.value):
     line3 = "***   Welcome to the Online Bookstore   ***\n"
     if menu == Menu.MAIN.value:
         print(line1 + line2 + line3 + line2 + line1)
-        mainMenuOption()
+        print("\t1. Member login")
+        print("\t2. New Member Registration")
+        print("\t3. Quit\n")
     if menu == Menu.USER.value:
         line4 = "***            Member Menu              ***\n"
         print(line1 + line2 + line3 + line4 + line2 + line1)
-        memberMenuOption()
-
-
-def memberMenuOption():
-    print("\t1. Browse by Subject")
-    print("\t2. Search by Author/Title")
-    print("\t3. Check out")
-    print("\t4. Logout")
-
-
-def mainMenuOption():
-    print("\t1. Member login")
-    print("\t2. New Member Registration")
-    print("\t3. Quit\n")
+        print("\t1. Browse by Subject")
+        print("\t2. Search by Author/Title")
+        print("\t3. Check out")
+        print("\t4. Logout")
 
 
 def newMemberMenu(sqlConnector):
@@ -199,16 +305,6 @@ def newMemberMenu(sqlConnector):
             print("You have registered successfully")
     except Error as e:
         print(f"Failed to created new member: {e.msg}\n")
-
-
-# REMOVE LATER
-def printMembers(sqlConnector):
-    selectMembers = "SELECT * FROM members"
-    with sqlConnector.cursor() as cursor:
-        cursor.execute(selectMembers)
-        result = cursor.fetchall()
-        for index, row in enumerate(result):
-            print(f"{index}. {row[0]}")
 
 
 # Section for input related functions
@@ -253,7 +349,10 @@ def browseSelection(userinput):
     if userinput == "":
         retVal = BrowseOptions.RETURN.value
     elif userinput.isnumeric():
-        retVal = BrowseOptions.ADDTOCART.value
+        if len(userinput) > 10:
+            retVal = BrowseOptions.ISBNERROR.value
+        else:
+            retVal = BrowseOptions.ADDTOCART.value
     elif userinput.lower() == "n":
         retVal = BrowseOptions.CONTINUE.value
     else:

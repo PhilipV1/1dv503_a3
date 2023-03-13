@@ -31,11 +31,12 @@ CREATE TABLE cart (
 userid INT NOT NULL,
 isbn CHAR(10) NOT NULL,
 qty INT,
+primary key (userid, isbn),
 foreign key (userid) references members (userid),
 foreign key (isbn) references books (isbn)
 );
   
-  CREATE TABLE orders (
+CREATE TABLE orders (
   userid INT NOT NULL,
   ono INT NOT NULL auto_increment,
   recieved DATE,
@@ -53,6 +54,7 @@ foreign key (isbn) references books (isbn)
   isbn CHAR(10) NOT NULL,
   qty INT,
   price FLOAT,
+  primary key (ono, isbn),
   foreign key (ono) references orders (ono),
   foreign key (isbn) references books (isbn)
   );
