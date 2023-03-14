@@ -17,5 +17,6 @@ VALUES ('Philip', 'Velandria', 'Stallvägen', 'Växjö', 'Kronoberg', '35256', '
 show columns from members;
 
 select * from cart;
+delete from cart where userid = 3;
 
 DELETE from cart WHERE userid = 3;

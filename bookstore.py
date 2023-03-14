@@ -9,54 +9,57 @@ class Menu(Enum):
     USER = 1
     NEWMEMBER = 2
     QUIT = 3
+    BROWSE = 4
+    SEARCH = 5
+    CHECKOUT = 6
+    LOGOUT = 7
 
 
-class UserMenu(Enum):
-    """Easier readability for menu options"""
-    BROWSE = 1
-    SEARCH = 2
-    CHECKOUT = 3
-    LOGOUT = 4
-
-
-class BrowseOptions(Enum):
+class Options(Enum):
     """Easier readability for menu options"""
     ISBNERROR = -2
     ERROR = -1
-    RETURN = 0
     ADDTOCART = 1
     CONTINUE = 2
+    RETURN = 3
+    AUTHORSEARCH = 4
+    TITLESEARCH = 5
 
 
 def main():
     run = True
     loggedin = False
-    userin = Menu.MAIN.value
+    menu = Menu.MAIN.value
     currentUser = createEmptyDict()
     sqlConnector = connectDB()
 
     if sqlConnector != 0:
         while run:
-            if userin == Menu.MAIN.value:
+            if menu == Menu.MAIN.value:
                 menuType(Menu.MAIN.value)
-                userin = userInput(Menu.MAIN.value)
-            if userin == Menu.USER.value:
+                menu = menuInput(Menu.MAIN.value)
+            if menu == Menu.USER.value:
                 if not loggedin:
                     loggedin = login(sqlConnector, currentUser)
-                    userin = Menu.USER.value
+                    menu = Menu.USER.value
                 else:
                     menuType(Menu.USER.value)
-                    userin = userInput(Menu.USER.value)
-                    if userin == UserMenu.BROWSE.value:
+                    menu = menuInput(Menu.USER.value)
+                    if menu == Menu.BROWSE.value:
                         browseSubject(sqlConnector, currentUser)
-                        userin = Menu.USER.value
-                    if userin == UserMenu.LOGOUT.value:
-                        userin = Menu.MAIN.value
-            if userin == Menu.NEWMEMBER.value:
+                        menu = Menu.USER.value
+                    if menu == Menu.SEARCH.value:
+                        searchAuthorTitle(sqlConnector, currentUser)
+                        menu = Menu.USER.value
+                    if menu == Menu.CHECKOUT.value:
+                        pass
+                    if menu == Menu.LOGOUT.value:
+                        menu = Menu.MAIN.value
+            if menu == Menu.NEWMEMBER.value:
                 newMemberMenu(sqlConnector)
                 input("\nPress enter to return to the main menu")
-                userin = Menu.MAIN.value
-            if userin == Menu.QUIT.value:
+                menu = Menu.MAIN.value
+            if menu == Menu.QUIT.value:
                 run = False
 
         sqlConnector.close()
@@ -128,27 +131,166 @@ def login(sqlConnector, currentUser):
 
 def browseSubject(sqlConnector, currentUser):
     """Lets the user select a subject and display the books in that subject"""
-    searchQuery = """SELECT DISTINCT subject FROM books ORDER BY subject"""
+    userid = currentUser.get("userid")
+    # Get the selected genre
+    result = getSubjects(sqlConnector)
+    selected = selectSubject(len(result))
+    subject = result[selected - 1][0]
+    offset = 0  # Offset keeps track of which books to show
+
+    # Display the first two books found
+    condition = "subject"
+    nrOfBooks = getBookAmountSpecific(sqlConnector, condition, subject)
+    print(f"{nrOfBooks} available books in this subject!")
+    subjectQuery(sqlConnector, offset, subject, nrOfBooks)
+    offset = (offset + 2) % nrOfBooks
+
+    # Continue as long as the user doesn't return to main menu
+    option = 0
+    while option != Options.RETURN.value:
+        userin = getInput()
+        menu = Menu.BROWSE.value
+
+        option = selection(userin, menu)
+        if option == Options.ERROR.value:
+            print("\nPlease input a valid option!\n")
+        if option == Options.ISBNERROR.value:
+            print("ERROR: ISBN Length > 10\n")
+        if option == Options.CONTINUE.value:
+            # Query for the 2 current books to show
+            subjectQuery(sqlConnector, offset, subject, nrOfBooks)
+            offset = (offset + 2) % nrOfBooks
+        if option == Options.ADDTOCART.value:
+            # Check if the book exist in the books table
+            if not checkBookExist(sqlConnector, userin):
+                print(f"\nBook not found! ISBN: {userin}\n")
+            else:
+                addToCart(sqlConnector, userin, userid)
+                checkCart(sqlConnector, userid)
+
+
+def getSubjects(sqlConnector):
     with sqlConnector.cursor() as cursor:
-        cursor.execute(searchQuery)
+        getSubjectQuery = """SELECT DISTINCT subject FROM books
+                            ORDER BY subject"""
+        cursor.execute(getSubjectQuery)
         result = cursor.fetchall()
         print()
         for count, row in enumerate(result):
             print(f"{count + 1}. {row[0]}")
-        # Get the selected genre
-        selection = selectSubject(len(result))
-        subject = result[selection - 1][0]
+    return result
+
+
+def searchAuthorTitle(sqlConnector, currentUser):
+    """Search and display books based on author or title search"""
+    userid = currentUser.get("userid")
+    option = 0
+
+    while option != Options.RETURN.value:
+        searchMenu()
+        userin = input("\nType in your choice: ")
+        option = selection(userin, Menu.SEARCH.value)
+        if option == Options.AUTHORSEARCH.value:
+            authorBrowse(sqlConnector, userid)
+        elif option == Options.TITLESEARCH.value:
+            titleBrowse(sqlConnector, userid)
+        else:
+            option = Options.RETURN.value
+
+
+def titleBrowse(sqlConnector, userid):
+    option = 0
+    offset = 0
+    condition = "title"
+    orderBy = condition
+    title = input("Enter title or part of a title: ")
+    nrOfBooks = getBookAmount(sqlConnector, condition, title)
+    nrOfBooks = nrOfBooks[0]  # Turning the tuple into the int value
+    print(f"{nrOfBooks} book(s) found!")
+    # Display the first set of books if there are any
+    if nrOfBooks > 0:
+        searchQuery(sqlConnector, offset, title, nrOfBooks, condition,
+                    orderBy)
+        offset = (offset + 3) % nrOfBooks
+    # Allows the user to browse through the books or add them to cart
+    while option != Options.RETURN.value:
+        userin = getInput()
+        option = selection(userin, Menu.BROWSE.value)
+        if option == Options.CONTINUE.value:
+            searchQuery(sqlConnector, offset, title, nrOfBooks, condition,
+                        orderBy)
+        elif option == Options.ADDTOCART.value:
+            addToCart(sqlConnector, userin, userid)
+
+
+def authorBrowse(sqlConnector, userid):
+    option = 0
+    condition = "author"
+    orderBy = condition
+    offset = 0  # Which rows will be selected from the database
+    author = input("Enter author name: ")
+    nrOfBooks = getBookAmount(sqlConnector, condition, author)
+    nrOfBooks = nrOfBooks[0]  # Turning the tuple into the int value
+    print(f"{nrOfBooks} book(s) found!\n")
+    # Displays the first number of books if there are any
+    if nrOfBooks > 0:
+        searchQuery(sqlConnector, offset, author, nrOfBooks, condition,
+                    orderBy)
+        offset = (offset + 3) % nrOfBooks
+
+    while option != Options.RETURN.value:
+        userin = getInput()
+        option = selection(userin, Menu.BROWSE.value)
+
+        if option == Options.CONTINUE.value:
+            searchQuery(sqlConnector, offset, author, nrOfBooks, condition,
+                        orderBy)
+        elif option == Options.ADDTOCART.value:
+            addToCart(sqlConnector, userin, userid)
+
+
+def getBookAmountSpecific(sqlConnector, condition, search):
+    """Query used when condition has to exactly match the search"""
+    with sqlConnector.cursor() as cursor:
         amountQuery = f"""SELECT count(*) FROM books
-            WHERE subject = \"{subject}\""""
+                        WHERE {condition} = \"{search}\""""
         cursor.execute(amountQuery)
-        nrOfBooks = cursor.fetchall()
+        nrOfBooks = cursor.fetchone()
+
+    return nrOfBooks[0]
+
+
+def getBookAmount(sqlConnector, condition, search):
+    """Query used when condition has to partially match the search"""
+    with sqlConnector.cursor() as cursor:
+        amountQuery = f"""SELECT count(*) FROM books
+                        WHERE {condition} LIKE \"%{search}%\""""
+        cursor.execute(amountQuery)
+        nrOfBooks = cursor.fetchone()
+
+    return nrOfBooks
+
+
+def checkBookExist(sqlConnector, isbn):
+    with sqlConnector.cursor() as cursor:
+        bookExistQuery = f"""SELECT 1 FROM books
+                            WHERE isbn = {isbn}"""
+        cursor.execute(bookExistQuery)
+        result = cursor.fetchone()
+        if result is None or result[0] < 1:
+            return False
+        else:
+            return True
+
+
+def subjectQuery(sqlConnector, offset, subject, nrOfBooks):
+    """Query for browsing specific subjects"""
+    with sqlConnector.cursor() as cursor:
         subjectQuery = f"""SELECT author, title, isbn, price, subject
         FROM books WHERE subject = \"{subject}\"
-        ORDER BY author LIMIT 0, 2"""
-        print(f"\"{subject}\"")
+        ORDER BY author LIMIT {offset}, 2"""
         cursor.execute(subjectQuery)
         books = cursor.fetchall()
-        print(f"{nrOfBooks[0][0]} available books on this subject\n")
         for b in books:
             print(f"Author: {b[0]}")
             print(f"Title: {b[1]}")
@@ -156,51 +298,28 @@ def browseSubject(sqlConnector, currentUser):
             print(f"Price: {b[3]}")
             print(f"Subject: {b[4]}\n")
 
-        # Continue as long as user does not return to main menu
-        returnMain = False
-        # Offset keeps track of which books to show
-        offset = 2
-        while not returnMain:
-            prompt = """Enter ISBN to add to cart or enter \"n\" to browse
-                or press ENTER to return to menu:\n"""
-            userin = input(prompt)
-            option = browseSelection(userin)
-            if option == BrowseOptions.ERROR.value:
-                print("\nPlease input a valid option!\n")
-            if option == BrowseOptions.ISBNERROR.value:
-                print("ERROR: ISBN Length > 10\n")
-            if option == BrowseOptions.RETURN.value:
-                returnMain = True
-            if option == BrowseOptions.CONTINUE.value:
-                # Query for the 2 current books to show
-                subjectQuery = f"""SELECT author, title, isbn, price, subject
-                    FROM books WHERE subject = \"{subject}\"
-                    ORDER BY author LIMIT {offset}, 2"""
-                offset = (offset + 2) % nrOfBooks[0][0]
-                cursor.execute(subjectQuery)
-                books = cursor.fetchall()
-                for b in books:
-                    print(f"Author: {b[0]}")
-                    print(f"Title: {b[1]}")
-                    print(f"ISBN: {b[2]}")
-                    print(f"Price: {b[3]}")
-                    print(f"Subject: {b[4]}\n")
-            if option == BrowseOptions.ADDTOCART.value:
-                # Check if the book exist in the books table
-                bookExistQuery = f"""SELECT 1 FROM books
-                    WHERE isbn = {userin}"""
-                cursor.execute(bookExistQuery)
-                book = cursor.fetchone()
-                if book is None:
-                    print(f"\nBook not found! ISBN: {userin}\n")
-                else:
-                    addToCart(sqlConnector, userin, currentUser)
-                    checkCart(cursor, currentUser.get("userid"))
+
+def searchQuery(sqlConnector, offset, search, nrOfBooks, condition, orderBy):
+    """Customizable SQL query depending on condition, search string, 
+    order by, offset and maximum items to display"""
+    with sqlConnector.cursor() as cursor:
+        authorQuery = f"""SELECT author, title, isbn, price, subject
+                        FROM books WHERE {condition} LIKE \"%{search}%\"
+                        ORDER BY {orderBy} LIMIT {offset}, 3"""
+        cursor.execute(authorQuery)
+        result = cursor.fetchall()
+        offset = (offset + 3) % nrOfBooks
+
+        for book in result:
+            print(f"Author: {book[0]}")
+            print(f"Title: {book[1]}")
+            print(f"ISBN: {book[2]}")
+            print(f"Price: {book[3]}")
+            print(f"Subject: {book[4]}\n")
 
 
-def addToCart(sqlConnector, isbn, currentUser):
+def addToCart(sqlConnector, isbn, userid):
     """Inserts a book into the cart table in the database"""
-    userid = currentUser.get("userid")
     with sqlConnector.cursor() as cursor:
         validInput = False
         while not validInput:
@@ -212,23 +331,15 @@ def addToCart(sqlConnector, isbn, currentUser):
 
         if qty == 0:
             # Check if the book already exists in the cart to remove it
-            checkCart = f"""SELECT 1 FROM cart WHERE isbn = {isbn}
-            AND userid = {userid}"""
-            cursor.execute(checkCart)
-            exist = cursor.fetchone()
-            if exist is not None:
+            if checkExistInCart(sqlConnector, isbn, userid):
                 removeFromCart = f"""DELETE from cart WHERE isbn = {isbn}
                 AND userid = {userid}"""
                 cursor.execute(removeFromCart)
-                cursor.commit()
+                sqlConnector.commit()
                 print(f"ISBN: {isbn} removed from cart!\n")
         elif qty > 0:
             # Add qty number of books of the given isbn to the cart
-            checkIfExist = f"""SELECT 1 FROM cart WHERE userid = {userid}
-            AND isbn = {isbn}"""
-            cursor.execute(checkIfExist)
-            exists = cursor.fetchone()
-            if exists is None:
+            if not checkExistInCart(sqlConnector, isbn, userid):
                 addBook = f"""INSERT INTO cart
                 (userid, isbn, qty)
                 VALUES ({userid}, {isbn}, {qty})"""
@@ -245,13 +356,26 @@ def addToCart(sqlConnector, isbn, currentUser):
             print("Please enter a valid quantity!\n")
 
 
-def checkCart(cursor, userid):
-    check = f"""SELECT * FROM cart WHERE userid = {userid}"""
-    cursor.execute(check)
-    cart = cursor.fetchall()
-    print("Books in cart: \n")
-    for row in cart:
-        print(row)
+def checkCart(sqlConnector, userid):
+    with sqlConnector.cursor() as cursor:
+        check = f"""SELECT * FROM cart WHERE userid = {userid}"""
+        cursor.execute(check)
+        cart = cursor.fetchall()
+        print("Books in cart: \n")
+        for row in cart:
+            print(row)
+
+
+def checkExistInCart(sqlConnector, isbn, userid):
+    with sqlConnector.cursor() as cursor:
+        bookExistQuery = f"""SELECT 1 FROM cart
+                        WHERE isbn = {isbn} AND userid = {userid}"""
+        cursor.execute(bookExistQuery)
+        result = cursor.fetchone()
+        if result is None or result[0] < 1:
+            return False
+        else:
+            return True
 
 
 def menuType(menu=Menu.MAIN.value):
@@ -307,8 +431,14 @@ def newMemberMenu(sqlConnector):
         print(f"Failed to created new member: {e.msg}\n")
 
 
+def searchMenu():
+    print("1. Author search")
+    print("2. Title search")
+    print("3. Return to main menu")
+
+
 # Section for input related functions
-def userInput(currentMenu):
+def menuInput(currentMenu):
     if currentMenu == Menu.MAIN.value:
         validInputs = [1, 2, 3]
     elif currentMenu == Menu.USER.value:
@@ -321,10 +451,23 @@ def userInput(currentMenu):
             if validInputs.count(value) < 1:
                 print("Please choose from the appropriate options")
             else:
+                # The addition is to avoid using multiple enum classes since
+                # the UI shows either 1-3 or 1-4 when the menu class has 1-7
+                # this converts the user menu options of 1-4 to 4-7
+                if currentMenu == Menu.USER.value:
+                    value += 3
                 option = True
         except ValueError as e:
             print(f"Invalid input: {e}")
     return value
+
+
+def getInput():
+    prompt = """Enter ISBN to add to cart or enter \"n\" to browse
+                or press ENTER to return to menu:\n"""
+    userin = input(prompt)
+
+    return userin
 
 
 def selectSubject(count):
@@ -343,20 +486,32 @@ def selectSubject(count):
     return selection
 
 
-def browseSelection(userinput):
+def selection(userinput, menuType):
+    """Selection function when the user searches/browse books"""
     retVal = -1
-
-    if userinput == "":
-        retVal = BrowseOptions.RETURN.value
-    elif userinput.isnumeric():
-        if len(userinput) > 10:
-            retVal = BrowseOptions.ISBNERROR.value
+    # Selection for browse by subject
+    if menuType == Menu.BROWSE.value:
+        if userinput == "":
+            retVal = Options.RETURN.value
+        elif userinput.isnumeric():
+            if len(userinput) > 10:
+                retVal = Options.ISBNERROR.value
+            else:
+                retVal = Options.ADDTOCART.value
+        elif userinput.lower() == "n":
+            retVal = Options.CONTINUE.value
         else:
-            retVal = BrowseOptions.ADDTOCART.value
-    elif userinput.lower() == "n":
-        retVal = BrowseOptions.CONTINUE.value
-    else:
-        retVal = BrowseOptions.ERROR.value
+            retVal = Options.ERROR.value
+    # Selection for Author/Title search
+    if menuType == Menu.SEARCH.value:
+        if userinput == "1":
+            retVal = Options.AUTHORSEARCH.value
+        elif userinput == "2":
+            retVal = Options.TITLESEARCH.value
+        elif userinput == "3":
+            retVal = Options.RETURN.value
+        else:
+            retVal = Options.ERROR.value
 
     return retVal
 
