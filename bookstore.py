@@ -52,7 +52,8 @@ def main():
                         searchAuthorTitle(sqlConnector, currentUser)
                         menu = Menu.USER.value
                     if menu == Menu.CHECKOUT.value:
-                        pass
+                        checkout(sqlConnector, currentUser)
+                        menu = Menu.USER.value
                     if menu == Menu.LOGOUT.value:
                         menu = Menu.MAIN.value
             if menu == Menu.NEWMEMBER.value:
@@ -68,8 +69,10 @@ def main():
 def connectDB():
     """Connects to the database, returns 0 on failure"""
     try:
-        account = input("Enter username: ")
-        pword = getpass("Enter password: ")
+        # account = input("Enter username: ")
+        # pword = getpass("Enter password: ")
+        account = "root"
+        pword = "EpcEsp343!"
         connection = connect(
             host="localhost",
             user=account,
@@ -101,8 +104,10 @@ def login(sqlConnector, currentUser):
     with sqlConnector.cursor() as cursor:
         validInput = False
         while not validInput:
-            email = input("Enter your email: ")
-            password = getpass("Enter your password: ")
+            # email = input("Enter your email: ")
+            # password = getpass("Enter your password: ")
+            email = 'philipvelandria@gmail.com'
+            password = '12345'
             userQuery = f"""SELECT fname, lname, address, city, state, zip,
             phone, email, userid, password
             FROM members WHERE email = \"{email}\" AND password = \"{password}\""""
@@ -376,6 +381,30 @@ def checkExistInCart(sqlConnector, isbn, userid):
             return False
         else:
             return True
+
+
+def checkout(sqlConnector, currentUser):
+    userid = currentUser.get("userid")
+    print(userid)
+    displayCart(userid)
+
+
+def displayCart(userid):
+    data = [['ISBN', 'Title', 'Price $', 'Total']]
+    isbnWidth = 10
+    titleWidth = 30
+    priceWidth = 8
+    totalWidth = 8
+    separator = '-' * (isbnWidth + titleWidth + priceWidth + totalWidth)
+    firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}}'
+    secondFormat = f'{{:>{priceWidth}}} {{:>{totalWidth}}}'
+    formatting = firstFormat + secondFormat
+    print(formatting)
+    for i in range(len(data)):
+        if i == 0:
+            print(formatting.format(data[i][0], data[i][1],
+                                    data[i][2], data[i][3]))
+            print(separator)
 
 
 def menuType(menu=Menu.MAIN.value):
