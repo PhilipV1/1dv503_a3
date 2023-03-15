@@ -70,10 +70,8 @@ def main():
 def connectDB():
     """Connects to the database, returns 0 on failure"""
     try:
-        # account = input("Enter username: ")
-        # pword = getpass("Enter password: ")
-        account = "root"
-        pword = "EpcEsp343!"
+        account = input("Enter username: ")
+        pword = getpass("Enter password: ")
         connection = connect(
             host="localhost",
             user=account,
@@ -105,10 +103,9 @@ def login(sqlConnector, currentUser):
     with sqlConnector.cursor() as cursor:
         validInput = False
         while not validInput:
-            # email = input("Enter your email: ")
-            # password = getpass("Enter your password: ")
-            email = 'philipvelandria@gmail.com'
-            password = '12345'
+            email = input("Enter your email: ")
+            password = getpass("Enter your password: ")
+
             userQuery = f"""SELECT fname, lname, address, city, state, zip,
             phone, email, userid, password
             FROM members WHERE email = \"{email}\"
@@ -173,7 +170,6 @@ def browseSubject(sqlConnector, currentUser):
                 print(f"\nBook not found! ISBN: {userin}\n")
             else:
                 addToCart(sqlConnector, userin, userid)
-                checkCart(sqlConnector, userid)
 
 
 def getSubjects(sqlConnector):
@@ -332,48 +328,41 @@ def addToCart(sqlConnector, isbn, userid):
         while not validInput:
             try:
                 qty = int(input("Enter quantity: "))
-                validInput = True
             except ValueError as ve:
-                print("Error!: " + ve)
+                print("Invalid input!: " + ve)
 
-        if qty == 0:
-            # Check if the book already exists in the cart to remove it
-            if checkExistInCart(sqlConnector, isbn, userid):
-                removeFromCart = f"""DELETE from cart WHERE isbn = {isbn}
-                AND userid = {userid}"""
-                cursor.execute(removeFromCart)
-                sqlConnector.commit()
-                print(f"ISBN: {isbn} removed from cart!\n")
-        elif qty > 0:
-            # Add qty number of books of the given isbn to the cart
-            if not checkExistInCart(sqlConnector, isbn, userid):
-                addBook = f"""INSERT INTO cart
-                (userid, isbn, qty)
-                VALUES ({userid}, {isbn}, {qty})"""
-                cursor.execute(addBook)
-                sqlConnector.commit()
-                print(f"Book added to cart! ISBN: {isbn}, Quantity: {qty}\n")
+            if qty == 0:
+                # Check if the book already exists in the cart to remove it
+                if checkExistInCart(sqlConnector, isbn, userid):
+                    removeFromCart = f"""DELETE from cart WHERE isbn = {isbn}
+                    AND userid = {userid}"""
+                    cursor.execute(removeFromCart)
+                    sqlConnector.commit()
+                    print(f"ISBN: {isbn} removed from cart!\n")
+                    validInput = True
+            elif qty > 0:
+                # Add qty number of books of the given isbn to the cart
+                if not checkExistInCart(sqlConnector, isbn, userid):
+                    addBook = f"""INSERT INTO cart
+                    (userid, isbn, qty)
+                    VALUES ({userid}, {isbn}, {qty})"""
+                    cursor.execute(addBook)
+                    sqlConnector.commit()
+                    print(f"Book added to cart! ISBN: {isbn}, Quantity: {qty}\n")
+                    validInput = True
+                else:
+                    updateCart = f"""UPDATE cart SET qty = {qty}
+                    WHERE isbn = {isbn} AND userid = {userid}"""
+                    cursor.execute(updateCart)
+                    sqlConnector.commit()
+                    print(f"Cart updated! ISBN: {isbn}, Quantity: {qty}")
+                    validInput = True
             else:
-                updateCart = f"""UPDATE cart SET qty = {qty}
-                WHERE isbn = {isbn} AND userid = {userid}"""
-                cursor.execute(updateCart)
-                sqlConnector.commit()
-                print(f"Cart updated! ISBN: {isbn}, Quantity: {qty}")
-        else:
-            print("Please enter a valid quantity!\n")
-
-
-def checkCart(sqlConnector, userid):
-    with sqlConnector.cursor() as cursor:
-        check = f"""SELECT * FROM cart WHERE userid = {userid}"""
-        cursor.execute(check)
-        cart = cursor.fetchall()
-        print("Books in cart: \n")
-        for row in cart:
-            print(row)
+                print("Please enter a valid quantity!\n")
 
 
 def checkExistInCart(sqlConnector, isbn, userid):
+    """Checks if a book exists in the cart for a specific user"""
     with sqlConnector.cursor() as cursor:
         bookExistQuery = f"""SELECT 1 FROM cart
                         WHERE isbn = {isbn} AND userid = {userid}"""
@@ -386,28 +375,101 @@ def checkExistInCart(sqlConnector, isbn, userid):
 
 
 def checkout(sqlConnector, currentUser):
+    """User checkout with the current items in cart"""
     userid = currentUser.get("userid")
     print(userid)
     data = getCartData(sqlConnector, userid)
+    print("Current cart content:\n")
     displayCart(sqlConnector, userid, data)
     validInput = False
     checkedOut = False
-    while not validInput:
-        userin = input("Proceed to checkout(Y/N)?: ")
-        if userin.lower() == 'y':
-            validInput = True
-            checkedOut = True
-        elif userin.lower() == 'n':
-            validInput = True
-        else:
-            print("Please enter y or n")
-    if checkedOut:
-        pass
+    if checkCartIfEmpty(sqlConnector, userid) > 0:
+        while not validInput:
+            userin = input("Proceed to checkout(Y/N)?: ")
+            if userin.lower() == 'y':
+                validInput = True
+                checkedOut = True
+            elif userin.lower() == 'n':
+                validInput = True
+            else:
+                print("Please enter y or n")
+        if checkedOut:
+            addToOrder(sqlConnector, currentUser, data)
+            invoice(sqlConnector, currentUser)
+            clearCart(sqlConnector, userid)
+    else:
+        input("Press ENTER to return to the menu: ")
+
+
+def addToOrder(sqlConnector, currentUser, data):
+    """Inserts data into order table in SQL"""
+    userid = currentUser.get("userid")
+    currentDate = datetime.date(datetime.today())
     deliveryDate = datetime.date(datetime.today()) + timedelta(weeks=1)
+    address = currentUser.get("address")
+    city = currentUser.get("city")
+    state = currentUser.get("state")
+    orderQuery = f"""INSERT INTO orders
+            (userid, recieved, shipped, shipAdress, shipCity, shipState)
+            VALUES ({userid}, \"{currentDate}\", \"{deliveryDate}\",
+                     \"{address}\", \"{city}\", \"{state}\")"""
+    try:
+        with sqlConnector.cursor() as cursor:
+            cursor.execute(orderQuery)
+            sqlConnector.commit()
+    except Error as e:
+        print("Failed to create order: " + e.msg)
+
+    addOrderDetails(sqlConnector, userid, data)
 
 
-def addToOrder(sqlConnector, currentUser):
-    pass
+def addOrderDetails(sqlConnector, userid, data):
+    """Inserts data into odetails table in SQL"""
+    ono = getMostRecentOno(sqlConnector, userid)
+    for row in data:
+        try:
+            with sqlConnector.cursor() as cursor:
+                # Row follows the same structure as the
+                # descriptor variable in displayCart
+                detailQuery = f"""INSERT INTO odetails (ono, isbn, qty, price)
+                VALUES ({ono}, {row[0]}, {row[3]}, {row[2]})"""
+                cursor.execute(detailQuery)
+                sqlConnector.commit()
+        except Error as e:
+            print("Failed to add orderdetails: " + e.msg)
+
+
+def getMostRecentOno(sqlConnector, userid):
+    """Getting the most recent order number for given userid"""
+    onoQuery = f"""SELECT ono FROM orders WHERE userid = {userid}"""
+    try:
+        with sqlConnector.cursor() as cursor:
+            cursor.execute(onoQuery)
+            result = cursor.fetchall()
+            recentono = max(result)
+    except Error as e:
+        print("Couldn't retrieve ono: " + e.msg)
+        return -1
+    return recentono[0]
+
+
+def checkCartIfEmpty(sqlConnector, userid):
+    query = f"""SELECT count(*) FROM cart WHERE userid = {userid}"""
+    with sqlConnector.cursor() as cursor:
+        cursor.execute(query)
+        result = cursor.fetchone()
+
+    return result[0]
+
+
+def clearCart(sqlConnector, userid):
+    clearQuery = f"""DELETE FROM cart WHERE userid = {userid}"""
+    try:
+        with sqlConnector.cursor() as cursor:
+            cursor.execute(clearQuery)
+            sqlConnector.commit()
+    except Error as e:
+        print("Couldn't remove cart from database: " + e.msg)
 
 
 def getCartData(sqlConnector, userid):
@@ -427,7 +489,9 @@ def getCartData(sqlConnector, userid):
             data[index][1] = title
             data[index][2] = price
             data[index][3] = row[1]  # Quantity
-            data[index][4] = price * row[1]
+            # rounds down to 2 decimals in total price
+            totalPrice = round((price * row[1]), 2)
+            data[index][4] = totalPrice
 
     return data
 
@@ -440,6 +504,23 @@ def getBookPriceTitle(sqlConnector, isbn):
         return result
 
 
+def invoice(sqlConnector, currentUser):
+    userid = currentUser.get("userid")
+    ono = getMostRecentOno(sqlConnector, userid)
+    fname = currentUser.get("fname")
+    lname = currentUser.get("lname")
+    address = currentUser.get("address")
+    city = currentUser.get("city")
+    zip = currentUser.get("zip")
+    print(f"\n\tInvoice for Order no. {ono:^2}")
+    print("Shipping address")
+    print(f"Name: {fname:>9} {lname:>5}")
+    print(f"""Address: {address:>3} {zip:>3} {city:>3}\n""")
+    data = getCartData(sqlConnector, userid)
+    displayCart(sqlConnector, userid, data)
+    input("\nPress ENTER to return to menu")
+
+
 def displayCart(sqlConnector, userid, data):
     descriptors = [['ISBN', 'Title', 'Price$', 'Qty', 'Total']]
     isbnWidth = 10
@@ -448,14 +529,17 @@ def displayCart(sqlConnector, userid, data):
     totalWidth = 8
     pad = 3
     # This gets the longest title from the cart to format the columns correctly
-    titleWidth = len(max(data, key=len)[1])
-
-    print("Current cart contents: \n ")
+    if len(data) > 0:
+        titleWidth = len(max(data, key=len)[1])
+        if titleWidth < 25:
+            titleWidth = 25
+    else:
+        titleWidth = 25
     # Used for formatting the cart in columns
     separator = '-' * (isbnWidth + titleWidth + qtyWidth + priceWidth
                        + totalWidth + pad)
-    firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}} {{:>{qtyWidth}}}'
-    secondFormat = f'{{:>{priceWidth}}} {{:>{totalWidth}}}'
+    firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}} {{:>{priceWidth}}}'
+    secondFormat = f'{{:>{totalWidth}}} {{:>{totalWidth}}}'
     formatting = firstFormat + secondFormat
     # Print the descriptor of each column
     print(separator)
@@ -534,7 +618,6 @@ def searchMenu():
     print("3. Return to main menu")
 
 
-# Section for input related functions
 def menuInput(currentMenu):
     if currentMenu == Menu.MAIN.value:
         validInputs = [1, 2, 3]
