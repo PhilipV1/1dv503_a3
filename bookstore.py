@@ -1,6 +1,7 @@
 from getpass import getpass
 from mysql.connector import connect, Error
 from enum import Enum
+from datetime import datetime, timedelta
 
 
 class Menu(Enum):
@@ -110,7 +111,8 @@ def login(sqlConnector, currentUser):
             password = '12345'
             userQuery = f"""SELECT fname, lname, address, city, state, zip,
             phone, email, userid, password
-            FROM members WHERE email = \"{email}\" AND password = \"{password}\""""
+            FROM members WHERE email = \"{email}\"
+            AND password = \"{password}\""""
             cursor.execute(userQuery)
             user = cursor.fetchone()
             if user is None or len(user) == 0:
@@ -305,7 +307,7 @@ def subjectQuery(sqlConnector, offset, subject, nrOfBooks):
 
 
 def searchQuery(sqlConnector, offset, search, nrOfBooks, condition, orderBy):
-    """Customizable SQL query depending on condition, search string, 
+    """Customizable SQL query depending on condition, search string,
     order by, offset and maximum items to display"""
     with sqlConnector.cursor() as cursor:
         authorQuery = f"""SELECT author, title, isbn, price, subject
@@ -386,25 +388,62 @@ def checkExistInCart(sqlConnector, isbn, userid):
 def checkout(sqlConnector, currentUser):
     userid = currentUser.get("userid")
     print(userid)
-    displayCart(userid)
+    displayCart(sqlConnector, userid)
+    deliveryDate = datetime.date(datetime.today()) + timedelta(weeks=1)
+    print(f"Estimated delivery date: {deliveryDate}")
 
 
-def displayCart(userid):
-    data = [['ISBN', 'Title', 'Price $', 'Total']]
+def getCartISBN(sqlConnector, userid):
+    """Collects ISBN, Title, Price and Quantity for all books in the cart.
+    Returns a 2 dimensional array"""
+    with sqlConnector.cursor() as cursor:
+        searchQuery = f"""SELECT isbn, qty FROM cart WHERE userid = {userid}"""
+        cursor.execute(searchQuery)
+        result = cursor.fetchall()
+        isbnArray = [0 for i in range(len(result))]
+        data = [[0 for i in range(4)] * len(result)]
+        for index, row in enumerate(result):
+            print(row[0])
+            isbnArray[index] = row[0]
+            getBookPriceTitle(sqlConnector, isbnArray[index])
+    return isbnArray
+
+
+def getBookPriceTitle(sqlConnector, isbn):
+    query = f"""SELECT title, price FROM books WHERE isbn = {isbn}"""
+    with sqlConnector.cursor() as cursor:
+        cursor.execute(query)
+        result = cursor.fetchall()
+        for row in result:
+            print(row)
+
+
+def getCart(sqlConnector, userid):
+    isbnArray = getCartISBN(sqlConnector, userid)
+    fields = 4
+    cartData = [[0 for i in range(fields)] * len(isbnArray)]
+
+
+def displayCart(sqlConnector, userid):
+    descriptors = [['ISBN', 'Title', 'Price $', 'Total']]
     isbnWidth = 10
     titleWidth = 30
     priceWidth = 8
     totalWidth = 8
-    separator = '-' * (isbnWidth + titleWidth + priceWidth + totalWidth)
+    pad = 3
+    # Used for formatting the cart in columns
+    separator = '-' * (isbnWidth + titleWidth + priceWidth + totalWidth + pad)
     firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}}'
     secondFormat = f'{{:>{priceWidth}}} {{:>{totalWidth}}}'
     formatting = firstFormat + secondFormat
-    print(formatting)
-    for i in range(len(data)):
+    getCart(sqlConnector, userid)
+    for i in range(len(descriptors)):
         if i == 0:
-            print(formatting.format(data[i][0], data[i][1],
-                                    data[i][2], data[i][3]))
+            print(formatting.format(descriptors[i][0], descriptors[i][1],
+                                    descriptors[i][2], descriptors[i][3]))
             print(separator)
+    # Take input
+    print("Proceed to checkout  (Y/N)?: ")
 
 
 def menuType(menu=Menu.MAIN.value):
@@ -492,6 +531,7 @@ def menuInput(currentMenu):
 
 
 def getInput():
+    """Asks the user for an input for ISBN, browse or return to main menu"""
     prompt = """Enter ISBN to add to cart or enter \"n\" to browse
                 or press ENTER to return to menu:\n"""
     userin = input(prompt)
