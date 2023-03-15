@@ -388,25 +388,48 @@ def checkExistInCart(sqlConnector, isbn, userid):
 def checkout(sqlConnector, currentUser):
     userid = currentUser.get("userid")
     print(userid)
-    displayCart(sqlConnector, userid)
+    data = getCartData(sqlConnector, userid)
+    displayCart(sqlConnector, userid, data)
+    validInput = False
+    checkedOut = False
+    while not validInput:
+        userin = input("Proceed to checkout(Y/N)?: ")
+        if userin.lower() == 'y':
+            validInput = True
+            checkedOut = True
+        elif userin.lower() == 'n':
+            validInput = True
+        else:
+            print("Please enter y or n")
+    if checkedOut:
+        pass
     deliveryDate = datetime.date(datetime.today()) + timedelta(weeks=1)
-    print(f"Estimated delivery date: {deliveryDate}")
 
 
-def getCartISBN(sqlConnector, userid):
+def addToOrder(sqlConnector, currentUser):
+    pass
+
+
+def getCartData(sqlConnector, userid):
     """Collects ISBN, Title, Price and Quantity for all books in the cart.
     Returns a 2 dimensional array"""
     with sqlConnector.cursor() as cursor:
         searchQuery = f"""SELECT isbn, qty FROM cart WHERE userid = {userid}"""
         cursor.execute(searchQuery)
         result = cursor.fetchall()
-        isbnArray = [0 for i in range(len(result))]
-        data = [[0 for i in range(4)] * len(result)]
+        fields = 5
+        data = [[0 for col in range(fields)] for row in range(len(result))]
         for index, row in enumerate(result):
-            print(row[0])
-            isbnArray[index] = row[0]
-            getBookPriceTitle(sqlConnector, isbnArray[index])
-    return isbnArray
+            titleAndPrice = getBookPriceTitle(sqlConnector, row[0])
+            title = titleAndPrice[0][0]
+            price = titleAndPrice[0][1]
+            data[index][0] = row[0]  # ISBN
+            data[index][1] = title
+            data[index][2] = price
+            data[index][3] = row[1]  # Quantity
+            data[index][4] = price * row[1]
+
+    return data
 
 
 def getBookPriceTitle(sqlConnector, isbn):
@@ -414,36 +437,42 @@ def getBookPriceTitle(sqlConnector, isbn):
     with sqlConnector.cursor() as cursor:
         cursor.execute(query)
         result = cursor.fetchall()
-        for row in result:
-            print(row)
+        return result
 
 
-def getCart(sqlConnector, userid):
-    isbnArray = getCartISBN(sqlConnector, userid)
-    fields = 4
-    cartData = [[0 for i in range(fields)] * len(isbnArray)]
-
-
-def displayCart(sqlConnector, userid):
-    descriptors = [['ISBN', 'Title', 'Price $', 'Total']]
+def displayCart(sqlConnector, userid, data):
+    descriptors = [['ISBN', 'Title', 'Price$', 'Qty', 'Total']]
     isbnWidth = 10
-    titleWidth = 30
+    qtyWidth = 8
     priceWidth = 8
     totalWidth = 8
     pad = 3
+    # This gets the longest title from the cart to format the columns correctly
+    titleWidth = len(max(data, key=len)[1])
+
+    print("Current cart contents: \n ")
     # Used for formatting the cart in columns
-    separator = '-' * (isbnWidth + titleWidth + priceWidth + totalWidth + pad)
-    firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}}'
+    separator = '-' * (isbnWidth + titleWidth + qtyWidth + priceWidth
+                       + totalWidth + pad)
+    firstFormat = f'{{:<{isbnWidth}}} {{:<{titleWidth}}} {{:>{qtyWidth}}}'
     secondFormat = f'{{:>{priceWidth}}} {{:>{totalWidth}}}'
     formatting = firstFormat + secondFormat
-    getCart(sqlConnector, userid)
-    for i in range(len(descriptors)):
-        if i == 0:
-            print(formatting.format(descriptors[i][0], descriptors[i][1],
-                                    descriptors[i][2], descriptors[i][3]))
-            print(separator)
-    # Take input
-    print("Proceed to checkout  (Y/N)?: ")
+    # Print the descriptor of each column
+    print(separator)
+    print(formatting.format(descriptors[0][0], descriptors[0][1],
+                            descriptors[0][2], descriptors[0][3],
+                            descriptors[0][4]))
+    print(separator)
+
+    totalPrice = 0
+    for i in range(len(data)):
+        totalPrice += data[i][2]
+        print(formatting.format(data[i][0], data[i][1], data[i][2],
+                                data[i][3], data[i][4]))
+    print(separator)
+    # Print out total price of all books in cart
+    print(formatting.format("Total: ", "", "", "", totalPrice))
+    print(separator)
 
 
 def menuType(menu=Menu.MAIN.value):
